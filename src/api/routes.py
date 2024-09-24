@@ -6,6 +6,11 @@ from api.models import db, User
 from api.utils import generate_sitemap, APIException
 from flask_cors import CORS
 
+from werkzeug.security import generate_password_hash, check_password_hash
+import datetime
+from flask_jwt_extended import create_access_token
+from flask_jwt_extended import jwt_required, JWTManager, get_jwt_identity
+
 api = Blueprint('api', __name__)
 
 # Allow CORS requests to this API
@@ -20,3 +25,35 @@ def handle_hello():
     }
 
     return jsonify(response_body), 200
+
+@api.route("/sign_up", methods=["POST"])
+def handle_sign_up():
+
+    email = request.json.get("email", None)
+    password = request.json.get("password", None)
+    if email is None or password is None:
+        return jsonify({"msg": "Missing email or password"}), 400 
+    if User.query.filter_by(email = email).first():
+        return jsonify({"msg": "User already exists"}), 400
+    hashed_password = generate_password_hash(password)
+    new_user = User(email = email, password = hashed_password, is_active = True)
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"msg": "User created successfully"}), 201
+    
+@api.route("/log_in", methods= ["POST"])
+def handle_log_in():
+    email = request.json.get("email")
+    password = request.json.get("password")
+    user = User.query.filter_by(email = email).first()
+    if user is None or not check_password_hash(user.password, password):
+        return jsonify({"msg": "Invalid username or password"}), 401
+    expiration = datetime.timedelta(days = 3)
+    access_token = create_access_token(identity = user.id, expires_delta = expiration)
+    return jsonify({"token": access_token}), 200 
+
+@api.route("/private", methods= ["GET"])
+@jwt_required()
+def private_route():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as = current_user), 200
